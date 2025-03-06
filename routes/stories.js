@@ -5,35 +5,35 @@ const StoryCollection = require('../models/Story');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
-// Base URL for images (will be updated later for persistent storage)
+// Base URL (temporary, will switch to cloud storage later)
 const BASE_URL = 'https://bharatstorybooks.com';
 
-// Multer setup for image uploads (temporary storage in Vercel)
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, 'uploads/'),
-  filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`),
+// Multer with memory storage for Vercel compatibility
+const upload = multer({
+  storage: multer.memoryStorage(), // Store files in memory, not disk
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
 });
-const upload = multer({ storage });
 
-// Get all stories
+// GET all stories
 router.get('/stories', async (req, res) => {
   try {
+    console.log('GET /stories - Fetching stories');
     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
     res.json(storyCollection ? storyCollection.stories : []);
   } catch (err) {
-    console.error('GET /stories error:', err); // Log error for debugging
+    console.error('GET /stories error:', err);
     res.status(500).json({ error: 'Failed to fetch stories', details: err.message });
   }
 });
 
-// Add a new story
+// POST a new story
 router.post('/stories', upload.fields([
   { name: 'storyCoverImage', maxCount: 1 },
   { name: 'bannerImge', maxCount: 1 },
 ]), async (req, res) => {
   try {
-    console.log('POST /stories - req.body:', req.body); // Debug payload
-    console.log('POST /stories - req.files:', req.files); // Debug uploaded files
+    console.log('POST /stories - req.body:', req.body);
+    console.log('POST /stories - req.files:', req.files);
     const { nameEn, nameTe } = req.body;
 
     // Validate required fields
@@ -46,12 +46,12 @@ router.post('/stories', upload.fields([
       id: uuidv4(),
       name: { en: nameEn, te: nameTe },
       storyCoverImage: req.files['storyCoverImage'] 
-        ? `${BASE_URL}/uploads/${req.files['storyCoverImage'][0].filename}` 
+        ? `data:image/${path.extname(req.files['storyCoverImage'][0].originalname).slice(1)};base64,${req.files['storyCoverImage'][0].buffer.toString('base64')}` 
         : '',
       bannerImge: req.files['bannerImge'] 
-        ? `${BASE_URL}/uploads/${req.files['bannerImge'][0].filename}` 
+        ? `data:image/${path.extname(req.files['bannerImge'][0].originalname).slice(1)};base64,${req.files['bannerImge'][0].buffer.toString('base64')}` 
         : '',
-      parts: { card: [] },
+      parts: { card: [] }, // Initialize empty parts
     };
 
     if (!storyCollection) {
@@ -61,18 +61,19 @@ router.post('/stories', upload.fields([
       await storyCollection.save();
     }
 
+    console.log('POST /stories - Story added:', newStory);
     res.status(201).json({ message: 'Story added', story: newStory });
   } catch (err) {
-    console.error('POST /stories error:', err); // Log detailed error
+    console.error('POST /stories error:', err);
     res.status(500).json({ error: 'Failed to add story', details: err.message });
   }
 });
 
-// Add or update a part
+// POST a new part or update existing part
 router.post('/parts', upload.any(), async (req, res) => {
   try {
-    console.log('POST /parts - req.body:', req.body); // Debug payload
-    console.log('POST /parts - req.files:', req.files); // Debug uploaded files
+    console.log('POST /parts - req.body:', req.body);
+    console.log('POST /parts - req.files:', req.files);
 
     const {
       storyId, partId, titleEn, titleTe, dateEn, dateTe,
@@ -91,7 +92,7 @@ router.post('/parts', upload.any(), async (req, res) => {
     const story = storyCollection.stories.find((s) => s.id === storyId);
     if (!story) return res.status(404).json({ error: 'Story not found' });
 
-    // Extract parts dynamically
+    // Build parts array dynamically
     const parts = [];
     let index = 0;
     while (req.body[`headingEn${index}`] || req.body[`headingTe${index}`]) {
@@ -107,7 +108,7 @@ router.post('/parts', upload.any(), async (req, res) => {
           te: req.body[`quoteTe${index}`] || '',
         },
         image: partImageField 
-          ? `${BASE_URL}/uploads/${partImageField.filename}` 
+          ? `data:image/${path.extname(partImageField.originalname).slice(1)};base64,${partImageField.buffer.toString('base64')}` 
           : req.body[`partImage${index}`] || '',
         text: {
           en: req.body[`textEn${index}`] || '',
@@ -122,10 +123,10 @@ router.post('/parts', upload.any(), async (req, res) => {
       title: { en: titleEn || '', te: titleTe || '' },
       date: { en: dateEn || '', te: dateTe || '' },
       thumbnailImage: req.files.find((f) => f.fieldname === 'thumbnailImage') 
-        ? `${BASE_URL}/uploads/${req.files.find((f) => f.fieldname === 'thumbnailImage').filename}` 
+        ? `data:image/${path.extname(req.files.find((f) => f.fieldname === 'thumbnailImage').originalname).slice(1)};base64,${req.files.find((f) => f.fieldname === 'thumbnailImage').buffer.toString('base64')}` 
         : req.body.thumbnailImage || '',
       coverImage: req.files.find((f) => f.fieldname === 'coverImage') 
-        ? `${BASE_URL}/uploads/${req.files.find((f) => f.fieldname === 'coverImage').filename}` 
+        ? `data:image/${path.extname(req.files.find((f) => f.fieldname === 'coverImage').originalname).slice(1)};base64,${req.files.find((f) => f.fieldname === 'coverImage').buffer.toString('base64')}` 
         : req.body.coverImage || '',
       description: { en: descriptionEn || '', te: descriptionTe || '' },
       timeToRead: { en: timeToReadEn || '', te: timeToReadTe || '' },
@@ -142,18 +143,20 @@ router.post('/parts', upload.any(), async (req, res) => {
     }
 
     await storyCollection.save();
+    console.log('POST /parts - Part managed:', newPart);
     res.status(201).json({ message: partId ? 'Part updated' : 'Part added', part: newPart });
   } catch (err) {
-    console.error('POST /parts error:', err); // Log detailed error
+    console.error('POST /parts error:', err);
     res.status(500).json({ error: 'Failed to manage part', details: err.message });
   }
 });
 
-// Delete a part
+// DELETE a part
 router.delete('/parts/:storyId/:partId', async (req, res) => {
   try {
     const { storyId, partId } = req.params;
-    console.log('DELETE /parts - storyId:', storyId, 'partId:', partId); // Debug params
+    console.log('DELETE /parts - storyId:', storyId, 'partId:', partId);
+
     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
     if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
 
@@ -163,9 +166,10 @@ router.delete('/parts/:storyId/:partId', async (req, res) => {
     story.parts.card = story.parts.card.filter((part) => part.id !== partId);
     await storyCollection.save();
 
+    console.log('DELETE /parts - Part deleted');
     res.json({ message: 'Part deleted successfully' });
   } catch (err) {
-    console.error('DELETE /parts error:', err); // Log detailed error
+    console.error('DELETE /parts error:', err);
     res.status(500).json({ error: 'Failed to delete part', details: err.message });
   }
 });
