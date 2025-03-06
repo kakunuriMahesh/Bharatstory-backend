@@ -10,8 +10,18 @@ const BASE_URL = 'https://bharatstorybooks.com';
 
 // Multer with memory storage for Vercel compatibility
 const upload = multer({
-  storage: multer.memoryStorage(), // Store files in memory, not disk
+  storage: multer.memoryStorage(), // Store files in memory
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    // Validate file types (optional, to catch bad uploads)
+    const filetypes = /jpeg|jpg|png/;
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = filetypes.test(file.mimetype);
+    if (extname && mimetype) {
+      return cb(null, true);
+    }
+    cb(new Error('Only JPEG/PNG images are allowed'));
+  }
 });
 
 // GET all stories
@@ -32,39 +42,51 @@ router.post('/stories', upload.fields([
   { name: 'bannerImge', maxCount: 1 },
 ]), async (req, res) => {
   try {
-    console.log('POST /stories - req.body:', req.body);
-    console.log('POST /stories - req.files:', req.files);
+    console.log('POST /stories - req.body:', req.body); // Log request body
+    console.log('POST /stories - req.files:', req.files); // Log uploaded files
+
     const { nameEn, nameTe } = req.body;
 
     // Validate required fields
     if (!nameEn || !nameTe) {
+      console.log('POST /stories - Validation failed: Missing nameEn or nameTe');
       return res.status(400).json({ error: 'nameEn and nameTe are required' });
     }
+
+    // Check if files were uploaded correctly
+    const storyCoverImage = req.files && req.files['storyCoverImage'] 
+      ? req.files['storyCoverImage'][0] 
+      : null;
+    const bannerImge = req.files && req.files['bannerImge'] 
+      ? req.files['bannerImge'][0] 
+      : null;
 
     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
     const newStory = {
       id: uuidv4(),
       name: { en: nameEn, te: nameTe },
-      storyCoverImage: req.files['storyCoverImage'] 
-        ? `data:image/${path.extname(req.files['storyCoverImage'][0].originalname).slice(1)};base64,${req.files['storyCoverImage'][0].buffer.toString('base64')}` 
+      storyCoverImage: storyCoverImage 
+        ? `data:image/${path.extname(storyCoverImage.originalname).slice(1)};base64,${storyCoverImage.buffer.toString('base64')}` 
         : '',
-      bannerImge: req.files['bannerImge'] 
-        ? `data:image/${path.extname(req.files['bannerImge'][0].originalname).slice(1)};base64,${req.files['bannerImge'][0].buffer.toString('base64')}` 
+      bannerImge: bannerImge 
+        ? `data:image/${path.extname(bannerImge.originalname).slice(1)};base64,${bannerImge.buffer.toString('base64')}` 
         : '',
-      parts: { card: [] }, // Initialize empty parts
+      parts: { card: [] },
     };
 
     if (!storyCollection) {
+      console.log('POST /stories - Creating new collection');
       await StoryCollection.create({ language: 'Eng', stories: [newStory] });
     } else {
+      console.log('POST /stories - Adding to existing collection');
       storyCollection.stories.push(newStory);
       await storyCollection.save();
     }
 
-    console.log('POST /stories - Story added:', newStory);
+    console.log('POST /stories - Story added successfully:', newStory);
     res.status(201).json({ message: 'Story added', story: newStory });
   } catch (err) {
-    console.error('POST /stories error:', err);
+    console.error('POST /stories error:', err); // Detailed error logging
     res.status(500).json({ error: 'Failed to add story', details: err.message });
   }
 });
