@@ -183,11 +183,11 @@ router.delete('/parts/:storyId/:partId', async (req, res) => {
     console.error('DELETE /parts error:', err);
     res.status(500).json({ error: 'Failed to delete part', details: err.message });
   }
-});
+});  
 
 module.exports = router;
 
-
+// 
 
 // const express = require('express');
 // const router = express.Router();
