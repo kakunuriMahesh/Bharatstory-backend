@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
-// Sub-schema for individual parts within a card
+// Sub-schema for parts within a card
 const PartSchema = new mongoose.Schema({
   id: { type: String, required: true },
   heading: { en: String, te: String },
-  quote: { en: String, te: String }, // Optional
+  quote: { en: String, te: String },
   image: String,
   text: { en: String, te: String },
 });
@@ -26,12 +26,12 @@ const CardSchema = new mongoose.Schema({
 const StorySchema = new mongoose.Schema({
   id: { type: String, required: true },
   name: { en: String, te: String },
-  storyCoverImage: String,
-  bannerImge: String, // Note: Typo, consider renaming to bannerImage
+  storyCoverImage: String, // Will store URL instead of base64
+  bannerImge: String, // Will store URL
   parts: { card: [CardSchema] },
 });
 
-// Top-level schema for language-based collections
+// Top-level schema
 const LanguageSchema = new mongoose.Schema({
   language: String,
   stories: [StorySchema],

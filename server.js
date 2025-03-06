@@ -11,8 +11,8 @@ const app = express();
 
 // Middleware
 app.use(cors()); // Allow cross-origin requests
-app.use(express.json()); // Parse JSON bodies (for non-multipart requests)
-app.use('/api', storyRoutes); // Mount story routes
+app.use(express.json()); // Parse JSON bodies
+app.use('/api', storyRoutes); // Mount API routes
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
@@ -22,10 +22,10 @@ mongoose.connect(process.env.MONGO_URI, {
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-// Test route for root (optional, to confirm server runs)
+// Test route for root
 app.get('/', (req, res) => res.send('Backend is running'));
 
-// Export for Vercel (serverless)
+// Export for Vercel
 module.exports = app;
 
 // -------first----------

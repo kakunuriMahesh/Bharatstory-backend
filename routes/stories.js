@@ -5,10 +5,10 @@ const StoryCollection = require('../models/Story');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
-// Base URL (temporary, for image paths in responses)
-const BASE_URL = 'https://bharatstorybooks.com';
+// Base URL for image paths (placeholder until cloud storage)
+const BASE_URL = 'https://bharatstorybooks.com/uploads';
 
-// Multer setup with memory storage for Vercel
+// Multer setup with memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
@@ -16,12 +16,22 @@ const upload = multer({
     const filetypes = /jpeg|jpg|png/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = filetypes.test(file.mimetype);
-    if (extname && mimetype) {
-      return cb(null, true);
-    }
-    cb(new Error('Only JPEG/PNG images are allowed'));
+    if (extname && mimetype) cb(null, true);
+    else cb(new Error('Only JPEG/PNG images are allowed'));
   },
 });
+
+// Multer error handler
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    console.error('Multer error:', err);
+    return res.status(400).json({ error: 'File upload error', details: err.message });
+  } else if (err) {
+    console.error('Upload error:', err);
+    return res.status(400).json({ error: 'Invalid file upload', details: err.message });
+  }
+  next();
+};
 
 // GET all stories
 router.get('/stories', async (req, res) => {
@@ -36,40 +46,39 @@ router.get('/stories', async (req, res) => {
 });
 
 // POST a new story
-router.post('/stories', upload.fields([
-  { name: 'storyCoverImage', maxCount: 1 },
-  { name: 'bannerImge', maxCount: 1 },
-]), async (req, res) => {
+router.post('/stories', (req, res, next) => {
+  upload.fields([
+    { name: 'storyCoverImage', maxCount: 1 },
+    { name: 'bannerImge', maxCount: 1 },
+  ])(req, res, (err) => {
+    if (err) return handleMulterError(err, req, res, next);
+    next();
+  });
+}, async (req, res) => {
   try {
     console.log('POST /stories - req.body:', req.body);
     console.log('POST /stories - req.files:', req.files || 'No files uploaded');
 
     const { nameEn, nameTe } = req.body;
 
-    // Validate required fields
     if (!nameEn || !nameTe) {
       console.log('POST /stories - Validation failed: Missing nameEn or nameTe');
       return res.status(400).json({ error: 'nameEn and nameTe are required' });
     }
 
-    // Handle file uploads safely
-    const storyCoverImage = req.files && req.files['storyCoverImage'] 
-      ? req.files['storyCoverImage'][0] 
-      : null;
-    const bannerImge = req.files && req.files['bannerImge'] 
-      ? req.files['bannerImge'][0] 
-      : null;
+    const storyCoverImage = req.files && req.files['storyCoverImage'] && req.files['storyCoverImage'][0]
+      ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['storyCoverImage'][0].originalname)}`
+      : '';
+    const bannerImge = req.files && req.files['bannerImge'] && req.files['bannerImge'][0]
+      ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['bannerImge'][0].originalname)}`
+      : '';
 
     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
     const newStory = {
       id: uuidv4(),
       name: { en: nameEn, te: nameTe },
-      storyCoverImage: storyCoverImage 
-        ? `data:image/${path.extname(storyCoverImage.originalname).slice(1)};base64,${storyCoverImage.buffer.toString('base64')}` 
-        : '',
-      bannerImge: bannerImge 
-        ? `data:image/${path.extname(bannerImge.originalname).slice(1)};base64,${bannerImge.buffer.toString('base64')}` 
-        : '',
+      storyCoverImage, // Store URL instead of base64
+      bannerImge, // Store URL instead of base64
       parts: { card: [] },
     };
 
@@ -91,7 +100,12 @@ router.post('/stories', upload.fields([
 });
 
 // POST a part (add or update)
-router.post('/parts', upload.any(), async (req, res) => {
+router.post('/parts', (req, res, next) => {
+  upload.any()(req, res, (err) => {
+    if (err) return handleMulterError(err, req, res, next);
+    next();
+  });
+}, async (req, res) => {
   try {
     console.log('POST /parts - req.body:', req.body);
     console.log('POST /parts - req.files:', req.files || 'No files uploaded');
@@ -122,7 +136,7 @@ router.post('/parts', upload.any(), async (req, res) => {
         heading: { en: req.body[`headingEn${index}`] || '', te: req.body[`headingTe${index}`] || '' },
         quote: { en: req.body[`quoteEn${index}`] || '', te: req.body[`quoteTe${index}`] || '' },
         image: partImageField 
-          ? `data:image/${path.extname(partImageField.originalname).slice(1)};base64,${partImageField.buffer.toString('base64')}` 
+          ? `${BASE_URL}/${uuidv4()}${path.extname(partImageField.originalname)}` 
           : req.body[`partImage${index}`] || '',
         text: { en: req.body[`textEn${index}`] || '', te: req.body[`textTe${index}`] || '' },
       });
@@ -134,10 +148,10 @@ router.post('/parts', upload.any(), async (req, res) => {
       title: { en: titleEn || '', te: titleTe || '' },
       date: { en: dateEn || '', te: dateTe || '' },
       thumbnailImage: req.files && req.files.find((f) => f.fieldname === 'thumbnailImage') 
-        ? `data:image/${path.extname(req.files.find((f) => f.fieldname === 'thumbnailImage').originalname).slice(1)};base64,${req.files.find((f) => f.fieldname === 'thumbnailImage').buffer.toString('base64')}` 
+        ? `${BASE_URL}/${uuidv4()}${path.extname(req.files.find((f) => f.fieldname === 'thumbnailImage').originalname)}` 
         : req.body.thumbnailImage || '',
       coverImage: req.files && req.files.find((f) => f.fieldname === 'coverImage') 
-        ? `data:image/${path.extname(req.files.find((f) => f.fieldname === 'coverImage').originalname).slice(1)};base64,${req.files.find((f) => f.fieldname === 'coverImage').buffer.toString('base64')}` 
+        ? `${BASE_URL}/${uuidv4()}${path.extname(req.files.find((f) => f.fieldname === 'coverImage').originalname)}` 
         : req.body.coverImage || '',
       description: { en: descriptionEn || '', te: descriptionTe || '' },
       timeToRead: { en: timeToReadEn || '', te: timeToReadTe || '' },
@@ -183,10 +197,9 @@ router.delete('/parts/:storyId/:partId', async (req, res) => {
     console.error('DELETE /parts error:', err);
     res.status(500).json({ error: 'Failed to delete part', details: err.message });
   }
-});  
+});
 
 module.exports = router;
-
 // 
 
 // const express = require('express');
