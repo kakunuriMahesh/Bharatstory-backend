@@ -4,14 +4,17 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const storyRoutes = require('./routes/stories');
 
+// Load environment variables
 dotenv.config();
 
 const app = express();
 
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+// Middleware
+app.use(cors()); // Allow cross-origin requests
+app.use(express.json()); // Parse JSON bodies (for non-multipart requests)
+app.use('/api', storyRoutes); // Mount story routes
 
+// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -19,12 +22,11 @@ mongoose.connect(process.env.MONGO_URI, {
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-app.use('/api', storyRoutes);
+// Test route for root (optional, to confirm server runs)
+app.get('/', (req, res) => res.send('Backend is running'));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-module.exports = app; // Add this for Vercel
+// Export for Vercel (serverless)
+module.exports = app;
 
 // -------first----------
 

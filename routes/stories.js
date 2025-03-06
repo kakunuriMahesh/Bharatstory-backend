@@ -5,15 +5,14 @@ const StoryCollection = require('../models/Story');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
-// Base URL (temporary, will switch to cloud storage later)
+// Base URL (temporary, for image paths in responses)
 const BASE_URL = 'https://bharatstorybooks.com';
 
-// Multer with memory storage for Vercel compatibility
+// Multer setup with memory storage for Vercel
 const upload = multer({
-  storage: multer.memoryStorage(), // Store files in memory
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
   fileFilter: (req, file, cb) => {
-    // Validate file types (optional, to catch bad uploads)
     const filetypes = /jpeg|jpg|png/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = filetypes.test(file.mimetype);
@@ -21,7 +20,7 @@ const upload = multer({
       return cb(null, true);
     }
     cb(new Error('Only JPEG/PNG images are allowed'));
-  }
+  },
 });
 
 // GET all stories
@@ -42,8 +41,8 @@ router.post('/stories', upload.fields([
   { name: 'bannerImge', maxCount: 1 },
 ]), async (req, res) => {
   try {
-    console.log('POST /stories - req.body:', req.body); // Log request body
-    console.log('POST /stories - req.files:', req.files); // Log uploaded files
+    console.log('POST /stories - req.body:', req.body);
+    console.log('POST /stories - req.files:', req.files || 'No files uploaded');
 
     const { nameEn, nameTe } = req.body;
 
@@ -53,7 +52,7 @@ router.post('/stories', upload.fields([
       return res.status(400).json({ error: 'nameEn and nameTe are required' });
     }
 
-    // Check if files were uploaded correctly
+    // Handle file uploads safely
     const storyCoverImage = req.files && req.files['storyCoverImage'] 
       ? req.files['storyCoverImage'][0] 
       : null;
@@ -83,19 +82,19 @@ router.post('/stories', upload.fields([
       await storyCollection.save();
     }
 
-    console.log('POST /stories - Story added successfully:', newStory);
+    console.log('POST /stories - Success:', newStory);
     res.status(201).json({ message: 'Story added', story: newStory });
   } catch (err) {
-    console.error('POST /stories error:', err); // Detailed error logging
+    console.error('POST /stories error:', err);
     res.status(500).json({ error: 'Failed to add story', details: err.message });
   }
 });
 
-// POST a new part or update existing part
+// POST a part (add or update)
 router.post('/parts', upload.any(), async (req, res) => {
   try {
     console.log('POST /parts - req.body:', req.body);
-    console.log('POST /parts - req.files:', req.files);
+    console.log('POST /parts - req.files:', req.files || 'No files uploaded');
 
     const {
       storyId, partId, titleEn, titleTe, dateEn, dateTe,
@@ -103,8 +102,8 @@ router.post('/parts', upload.any(), async (req, res) => {
       storyTypeEn, storyTypeTe,
     } = req.body;
 
-    // Validate required fields
     if (!storyId || !titleEn || !titleTe) {
+      console.log('POST /parts - Validation failed: Missing required fields');
       return res.status(400).json({ error: 'storyId, titleEn, and titleTe are required' });
     }
 
@@ -114,28 +113,18 @@ router.post('/parts', upload.any(), async (req, res) => {
     const story = storyCollection.stories.find((s) => s.id === storyId);
     if (!story) return res.status(404).json({ error: 'Story not found' });
 
-    // Build parts array dynamically
     const parts = [];
     let index = 0;
     while (req.body[`headingEn${index}`] || req.body[`headingTe${index}`]) {
-      const partImageField = req.files.find((f) => f.fieldname === `partImage${index}`);
+      const partImageField = req.files && req.files.find((f) => f.fieldname === `partImage${index}`);
       parts.push({
         id: uuidv4(),
-        heading: {
-          en: req.body[`headingEn${index}`] || '',
-          te: req.body[`headingTe${index}`] || '',
-        },
-        quote: {
-          en: req.body[`quoteEn${index}`] || '',
-          te: req.body[`quoteTe${index}`] || '',
-        },
+        heading: { en: req.body[`headingEn${index}`] || '', te: req.body[`headingTe${index}`] || '' },
+        quote: { en: req.body[`quoteEn${index}`] || '', te: req.body[`quoteTe${index}`] || '' },
         image: partImageField 
           ? `data:image/${path.extname(partImageField.originalname).slice(1)};base64,${partImageField.buffer.toString('base64')}` 
           : req.body[`partImage${index}`] || '',
-        text: {
-          en: req.body[`textEn${index}`] || '',
-          te: req.body[`textTe${index}`] || '',
-        },
+        text: { en: req.body[`textEn${index}`] || '', te: req.body[`textTe${index}`] || '' },
       });
       index++;
     }
@@ -144,10 +133,10 @@ router.post('/parts', upload.any(), async (req, res) => {
       id: partId || uuidv4(),
       title: { en: titleEn || '', te: titleTe || '' },
       date: { en: dateEn || '', te: dateTe || '' },
-      thumbnailImage: req.files.find((f) => f.fieldname === 'thumbnailImage') 
+      thumbnailImage: req.files && req.files.find((f) => f.fieldname === 'thumbnailImage') 
         ? `data:image/${path.extname(req.files.find((f) => f.fieldname === 'thumbnailImage').originalname).slice(1)};base64,${req.files.find((f) => f.fieldname === 'thumbnailImage').buffer.toString('base64')}` 
         : req.body.thumbnailImage || '',
-      coverImage: req.files.find((f) => f.fieldname === 'coverImage') 
+      coverImage: req.files && req.files.find((f) => f.fieldname === 'coverImage') 
         ? `data:image/${path.extname(req.files.find((f) => f.fieldname === 'coverImage').originalname).slice(1)};base64,${req.files.find((f) => f.fieldname === 'coverImage').buffer.toString('base64')}` 
         : req.body.coverImage || '',
       description: { en: descriptionEn || '', te: descriptionTe || '' },
@@ -165,7 +154,7 @@ router.post('/parts', upload.any(), async (req, res) => {
     }
 
     await storyCollection.save();
-    console.log('POST /parts - Part managed:', newPart);
+    console.log('POST /parts - Success:', newPart);
     res.status(201).json({ message: partId ? 'Part updated' : 'Part added', part: newPart });
   } catch (err) {
     console.error('POST /parts error:', err);
@@ -188,7 +177,7 @@ router.delete('/parts/:storyId/:partId', async (req, res) => {
     story.parts.card = story.parts.card.filter((part) => part.id !== partId);
     await storyCollection.save();
 
-    console.log('DELETE /parts - Part deleted');
+    console.log('DELETE /parts - Success');
     res.json({ message: 'Part deleted successfully' });
   } catch (err) {
     console.error('DELETE /parts error:', err);
