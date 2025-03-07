@@ -4,6 +4,8 @@ const multer = require('multer');
 const StoryCollection = require('../models/Story');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
+const jwt = require('jsonwebtoken');
+require('dotenv').config();
 
 // Base URL for image paths (placeholder until cloud storage)
 const BASE_URL = 'https://bharatstorybooks.com/uploads';
@@ -11,7 +13,7 @@ const BASE_URL = 'https://bharatstorybooks.com/uploads';
 // Multer setup with memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const filetypes = /jpeg|jpg|png/;
     const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
@@ -20,6 +22,147 @@ const upload = multer({
     else cb(new Error('Only JPEG/PNG images are allowed'));
   },
 });
+
+// Middleware to verify JWT
+const authenticateToken = (req, res, next) => {
+  const token = req.headers['authorization']?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No token provided' });
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid token' });
+    req.user = user;
+    next();
+  });
+};
+
+// GET all stories
+router.get('/stories', authenticateToken, async (req, res) => {
+  try {
+    const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
+    res.json(storyCollection ? storyCollection.stories : []);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch stories', details: err.message });
+  }
+});
+
+// GET single story
+router.get('/stories/:id', authenticateToken, async (req, res) => {
+  try {
+    const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
+    const story = storyCollection.stories.find((s) => s.id === req.params.id);
+    if (!story) return res.status(404).json({ error: 'Story not found' });
+    res.json(story);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch story', details: err.message });
+  }
+});
+
+
+// POST new story
+router.post('/stories', authenticateToken, upload.fields([
+  { name: 'storyCoverImage', maxCount: 1 },
+  { name: 'bannerImge', maxCount: 1 },
+]), async (req, res) => {
+  try {
+    const { nameEn, nameTe, nameHi, languages } = req.body;
+    const parsedLanguages = languages ? JSON.parse(languages) : ['en', 'te']; // Default to en, te
+    if (!parsedLanguages.length) return res.status(400).json({ error: 'At least one language required' });
+
+    const name = {};
+    if (parsedLanguages.includes('en')) name.en = nameEn || '';
+    if (parsedLanguages.includes('te')) name.te = nameTe || '';
+    if (parsedLanguages.includes('hi')) name.hi = nameHi || '';
+
+    const storyCoverImage = req.files && req.files['storyCoverImage']
+      ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['storyCoverImage'][0].originalname)}`
+      : '';
+    const bannerImge = req.files && req.files['bannerImge']
+      ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['bannerImge'][0].originalname)}`
+      : '';
+
+    const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
+    const newStory = {
+      id: uuidv4(),
+      name,
+      languages: parsedLanguages,
+      storyCoverImage,
+      bannerImge,
+      parts: { card: [] },
+    };
+
+    if (!storyCollection) {
+      await StoryCollection.create({ language: 'Eng', stories: [newStory] });
+    } else {
+      storyCollection.stories.push(newStory);
+      await storyCollection.save();
+    }
+
+    res.status(201).json({ message: 'Story added', story: newStory });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to add story', details: err.message });
+  }
+});
+
+// PUT update story
+router.put('/stories/:id', authenticateToken, upload.fields([
+  { name: 'storyCoverImage', maxCount: 1 },
+  { name: 'bannerImge', maxCount: 1 },
+]), async (req, res) => {
+  try {
+    const { nameEn, nameTe, nameHi, languages } = req.body;
+    const parsedLanguages = languages ? JSON.parse(languages) : null;
+
+    const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
+    const storyIndex = storyCollection.stories.findIndex((s) => s.id === req.params.id);
+    if (storyIndex === -1) return res.status(404).json({ error: 'Story not found' });
+
+    const existingStory = storyCollection.stories[storyIndex];
+    const updatedName = {
+      en: parsedLanguages?.includes('en') ? (nameEn || existingStory.name.en) : existingStory.name.en,
+      te: parsedLanguages?.includes('te') ? (nameTe || existingStory.name.te) : existingStory.name.te,
+      hi: parsedLanguages?.includes('hi') ? (nameHi || existingStory.name.hi) : existingStory.name.hi,
+    };
+
+    const updatedStory = {
+      ...existingStory,
+      name: updatedName,
+      languages: parsedLanguages || existingStory.languages,
+      storyCoverImage: req.files && req.files['storyCoverImage']
+        ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['storyCoverImage'][0].originalname)}`
+        : existingStory.storyCoverImage,
+      bannerImge: req.files && req.files['bannerImge']
+        ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['bannerImge'][0].originalname)}`
+        : existingStory.bannerImge,
+    };
+
+    storyCollection.stories[storyIndex] = updatedStory;
+    await storyCollection.save();
+
+    res.json({ message: 'Story updated', story: updatedStory });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update story', details: err.message });
+  }
+});
+
+
+// DELETE story
+router.delete('/stories/:id', authenticateToken, async (req, res) => {
+  try {
+    const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
+    const storyIndex = storyCollection.stories.findIndex((s) => s.id === req.params.id);
+    if (storyIndex === -1) return res.status(404).json({ error: 'Story not found' });
+
+    storyCollection.stories.splice(storyIndex, 1); // Deletes story and its parts
+    await storyCollection.save();
+
+    res.json({ message: 'Story and its parts deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete story', details: err.message });
+  }
+});
+
+
+
 
 // Multer error handler
 const handleMulterError = (err, req, res, next) => {
@@ -33,76 +176,10 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-// GET all stories
-router.get('/stories', async (req, res) => {
-  try {
-    console.log('GET /stories - Fetching stories');
-    const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
-    res.json(storyCollection ? storyCollection.stories : []);
-  } catch (err) {
-    console.error('GET /stories error:', err);
-    res.status(500).json({ error: 'Failed to fetch stories', details: err.message });
-  }
-});
-
-// POST a new story
-router.post('/stories', (req, res, next) => {
-  upload.fields([
-    { name: 'storyCoverImage', maxCount: 1 },
-    { name: 'bannerImge', maxCount: 1 },
-  ])(req, res, (err) => {
-    if (err) return handleMulterError(err, req, res, next);
-    next();
-  });
-}, async (req, res) => {
-  try {
-    console.log('POST /stories - req.body:', req.body);
-    console.log('POST /stories - req.files:', req.files || 'No files uploaded');
-
-    const { nameEn, nameTe } = req.body;
-
-    if (!nameEn || !nameTe) {
-      console.log('POST /stories - Validation failed: Missing nameEn or nameTe');
-      return res.status(400).json({ error: 'nameEn and nameTe are required' });
-    }
-
-    const storyCoverImage = req.files && req.files['storyCoverImage'] && req.files['storyCoverImage'][0]
-      ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['storyCoverImage'][0].originalname)}`
-      : '';
-    const bannerImge = req.files && req.files['bannerImge'] && req.files['bannerImge'][0]
-      ? `${BASE_URL}/${uuidv4()}${path.extname(req.files['bannerImge'][0].originalname)}`
-      : '';
-
-    const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
-    const newStory = {
-      id: uuidv4(),
-      name: { en: nameEn, te: nameTe },
-      storyCoverImage, // Store URL instead of base64
-      bannerImge, // Store URL instead of base64
-      parts: { card: [] },
-    };
-
-    if (!storyCollection) {
-      console.log('POST /stories - Creating new collection');
-      await StoryCollection.create({ language: 'Eng', stories: [newStory] });
-    } else {
-      console.log('POST /stories - Adding to existing collection');
-      storyCollection.stories.push(newStory);
-      await storyCollection.save();
-    }
-
-    console.log('POST /stories - Success:', newStory);
-    res.status(201).json({ message: 'Story added', story: newStory });
-  } catch (err) {
-    console.error('POST /stories error:', err);
-    res.status(500).json({ error: 'Failed to add story', details: err.message });
-  }
-});
-
 // POST a part (add or update)
-router.post('/parts', (req, res, next) => {
+router.post('/parts', authenticateToken, (req, res, next) => {
   upload.any()(req, res, (err) => {
-    if (err) return handleMulterError(err, req, res, next);
+    if (err) return res.status(400).json({ error: err.message });
     next();
   });
 }, async (req, res) => {
@@ -111,15 +188,15 @@ router.post('/parts', (req, res, next) => {
     console.log('POST /parts - req.files:', req.files || 'No files uploaded');
 
     const {
-      storyId, partId, titleEn, titleTe, dateEn, dateTe,
-      descriptionEn, descriptionTe, timeToReadEn, timeToReadTe,
-      storyTypeEn, storyTypeTe,
+      storyId, partId, titleEn, titleTe, titleHi, dateEn, dateTe, dateHi,
+      descriptionEn, descriptionTe, descriptionHi, timeToReadEn, timeToReadTe, timeToReadHi,
+      storyTypeEn, storyTypeTe, storyTypeHi, languages,
     } = req.body;
 
-    if (!storyId || !titleEn || !titleTe) {
-      console.log('POST /parts - Validation failed: Missing required fields');
-      return res.status(400).json({ error: 'storyId, titleEn, and titleTe are required' });
-    }
+    const parsedLanguages = languages ? JSON.parse(languages) : ['en', 'te'];
+    if (!parsedLanguages.length) return res.status(400).json({ error: 'At least one language required' });
+
+    if (!storyId) return res.status(400).json({ error: 'storyId is required' });
 
     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
     if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
@@ -127,35 +204,91 @@ router.post('/parts', (req, res, next) => {
     const story = storyCollection.stories.find((s) => s.id === storyId);
     if (!story) return res.status(404).json({ error: 'Story not found' });
 
+    // Validate part languages against story languages
+    const invalidLanguages = parsedLanguages.filter((lang) => !story.languages.includes(lang));
+    if (invalidLanguages.length) {
+      return res.status(400).json({ error: `Cannot add part in languages not set in story: ${invalidLanguages.join(', ')}` });
+    }
+
+    // Build title, date, etc., based on selected languages
+    const title = {};
+    const date = {};
+    const description = {};
+    const timeToRead = {};
+    const storyType = {};
+    if (parsedLanguages.includes('en')) {
+      if (!titleEn) return res.status(400).json({ error: 'titleEn is required when English is selected' });
+      title.en = titleEn;
+      date.en = dateEn || '';
+      description.en = descriptionEn || '';
+      timeToRead.en = timeToReadEn || '';
+      storyType.en = storyTypeEn || '';
+    }
+    if (parsedLanguages.includes('te')) {
+      if (!titleTe) return res.status(400).json({ error: 'titleTe is required when Telugu is selected' });
+      title.te = titleTe;
+      date.te = dateTe || '';
+      description.te = descriptionTe || '';
+      timeToRead.te = timeToReadTe || '';
+      storyType.te = storyTypeTe || '';
+    }
+    if (parsedLanguages.includes('hi')) {
+      if (!titleHi) return res.status(400).json({ error: 'titleHi is required when Hindi is selected' });
+      title.hi = titleHi;
+      date.hi = dateHi || '';
+      description.hi = descriptionHi || '';
+      timeToRead.hi = timeToReadHi || '';
+      storyType.hi = storyTypeHi || '';
+    }
+
+    // Handle dynamic parts
     const parts = [];
     let index = 0;
-    while (req.body[`headingEn${index}`] || req.body[`headingTe${index}`]) {
+    while (req.body[`headingEn${index}`] || req.body[`headingTe${index}`] || req.body[`headingHi${index}`]) {
       const partImageField = req.files && req.files.find((f) => f.fieldname === `partImage${index}`);
+      const heading = {};
+      const quote = {};
+      const text = {};
+      if (parsedLanguages.includes('en')) {
+        heading.en = req.body[`headingEn${index}`] || '';
+        quote.en = req.body[`quoteEn${index}`] || '';
+        text.en = req.body[`textEn${index}`] || '';
+      }
+      if (parsedLanguages.includes('te')) {
+        heading.te = req.body[`headingTe${index}`] || '';
+        quote.te = req.body[`quoteTe${index}`] || '';
+        text.te = req.body[`textTe${index}`] || '';
+      }
+      if (parsedLanguages.includes('hi')) {
+        heading.hi = req.body[`headingHi${index}`] || '';
+        quote.hi = req.body[`quoteHi${index}`] || '';
+        text.hi = req.body[`textHi${index}`] || '';
+      }
       parts.push({
         id: uuidv4(),
-        heading: { en: req.body[`headingEn${index}`] || '', te: req.body[`headingTe${index}`] || '' },
-        quote: { en: req.body[`quoteEn${index}`] || '', te: req.body[`quoteTe${index}`] || '' },
+        heading,
+        quote,
         image: partImageField 
           ? `${BASE_URL}/${uuidv4()}${path.extname(partImageField.originalname)}` 
           : req.body[`partImage${index}`] || '',
-        text: { en: req.body[`textEn${index}`] || '', te: req.body[`textTe${index}`] || '' },
+        text,
       });
       index++;
     }
 
     const newPart = {
       id: partId || uuidv4(),
-      title: { en: titleEn || '', te: titleTe || '' },
-      date: { en: dateEn || '', te: dateTe || '' },
+      title,
+      date,
       thumbnailImage: req.files && req.files.find((f) => f.fieldname === 'thumbnailImage') 
         ? `${BASE_URL}/${uuidv4()}${path.extname(req.files.find((f) => f.fieldname === 'thumbnailImage').originalname)}` 
         : req.body.thumbnailImage || '',
       coverImage: req.files && req.files.find((f) => f.fieldname === 'coverImage') 
         ? `${BASE_URL}/${uuidv4()}${path.extname(req.files.find((f) => f.fieldname === 'coverImage').originalname)}` 
         : req.body.coverImage || '',
-      description: { en: descriptionEn || '', te: descriptionTe || '' },
-      timeToRead: { en: timeToReadEn || '', te: timeToReadTe || '' },
-      storyType: { en: storyTypeEn || '', te: storyTypeTe || '' },
+      description,
+      timeToRead,
+      storyType,
       part: parts,
     };
 
@@ -177,184 +310,27 @@ router.post('/parts', (req, res, next) => {
 });
 
 // DELETE a part
-router.delete('/parts/:storyId/:partId', async (req, res) => {
+router.delete('/parts/:storyId/:partId', authenticateToken, async (req, res) => {
   try {
     const { storyId, partId } = req.params;
-    console.log('DELETE /parts - storyId:', storyId, 'partId:', partId);
-
     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
-    if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
-
     const story = storyCollection.stories.find((s) => s.id === storyId);
     if (!story) return res.status(404).json({ error: 'Story not found' });
 
     story.parts.card = story.parts.card.filter((part) => part.id !== partId);
     await storyCollection.save();
 
-    console.log('DELETE /parts - Success');
     res.json({ message: 'Part deleted successfully' });
   } catch (err) {
-    console.error('DELETE /parts error:', err);
     res.status(500).json({ error: 'Failed to delete part', details: err.message });
   }
 });
 
-module.exports = router;
-// 
-
-// const express = require('express');
-// const router = express.Router();
-// const multer = require('multer');
-// const StoryCollection = require('../models/Story');
-// const { v4: uuidv4 } = require('uuid');
-// const path = require('path');
-
-// // Base URL for images with your domain
-// const BASE_URL = 'https://bharatstorybooks.com';
-
-// // Multer setup for image uploads
-// const storage = multer.diskStorage({
-//   destination: (req, file, cb) => cb(null, 'uploads/'),
-//   filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`),
-// });
-// const upload = multer({ storage });
-
-// // Get all stories
-// router.get('/stories', async (req, res) => {
-//   try {
-//     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
-//     res.json(storyCollection ? storyCollection.stories : []);
-//   } catch (err) {
-//     res.status(500).json({ error: 'Failed to fetch stories', details: err.message });
-//   }
-// });
-
-// // Add a new story
-// router.post('/stories', upload.fields([
-//   { name: 'storyCoverImage', maxCount: 1 },
-//   { name: 'bannerImge', maxCount: 1 },
-// ]), async (req, res) => {
-//   try {
-//     console.log('Adding Story - req.body:', req.body);
-//     console.log('Adding Story - req.files:', req.files);
-//     const { nameEn, nameTe } = req.body;
-//     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
-//     const newStory = {
-//       id: uuidv4(),
-//       name: { en: nameEn, te: nameTe },
-//       storyCoverImage: req.files['storyCoverImage'] ? `${BASE_URL}/uploads/${req.files['storyCoverImage'][0].filename}` : '',
-//       bannerImge: req.files['bannerImge'] ? `${BASE_URL}/uploads/${req.files['bannerImge'][0].filename}` : '',
-//       parts: { card: [] },
-//     };
-
-//     if (!storyCollection) {
-//       await StoryCollection.create({ language: 'Eng', stories: [newStory] });
-//     } else {
-//       storyCollection.stories.push(newStory);
-//       await storyCollection.save();
-//     }
-
-//     res.status(201).json({ message: 'Story added', story: newStory });
-//   } catch (err) {
-//     res.status(500).json({ error: 'Failed to add story', details: err.message });
-//   }
-// });
-
-// // Add or update a part
-// router.post('/parts', upload.any(), async (req, res) => {
-//   try {
-//     console.log('Received /parts - req.body:', req.body);
-//     console.log('Received /parts - req.files:', req.files);
-
-//     const {
-//       storyId, partId, titleEn, titleTe, dateEn, dateTe,
-//       descriptionEn, descriptionTe, timeToReadEn, timeToReadTe,
-//       storyTypeEn, storyTypeTe,
-//     } = req.body;
-
-//     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
-//     if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
-
-//     const story = storyCollection.stories.find((s) => s.id === storyId);
-//     if (!story) return res.status(404).json({ error: 'Story not found' });
-
-//     // Extract parts dynamically
-//     const parts = [];
-//     let index = 0;
-//     console.log('Starting part extraction...');
-//     while (Object.keys(req.body).some(key => 
-//       key === `headingEn${index}` || 
-//       key === `headingTe${index}` || 
-//       key === `textEn${index}` || 
-//       key === `textTe${index}` || 
-//       key === `quoteEn${index}` || 
-//       key === `quoteTe${index}`
-//     )) {
-//       const partImageField = req.files.find((f) => f.fieldname === `partImage${index}`);
-//       const part = {
-//         id: uuidv4(),
-//         heading: {
-//           en: req.body[`headingEn${index}`] || '',
-//           te: req.body[`headingTe${index}`] || '',
-//         },
-//         quote: {
-//           en: req.body[`quoteEn${index}`] || '',
-//           te: req.body[`quoteTe${index}`] || '',
-//         },
-//         image: partImageField ? `${BASE_URL}/uploads/${partImageField.filename}` : req.body[`partImage${index}`] || '',
-//         text: {
-//           en: req.body[`textEn${index}`] || '',
-//           te: req.body[`textTe${index}`] || '',
-//         },
-//       };
-//       console.log(`Extracted part ${index}:`, part);
-//       parts.push(part);
-//       index++;
-//     }
-
-//     const newPart = {
-//       id: partId || uuidv4(),
-//       title: { en: titleEn, te: titleTe },
-//       date: { en: dateEn, te: dateTe },
-//       thumbnailImage: req.files.find((f) => f.fieldname === 'thumbnailImage') 
-//         ? `${BASE_URL}/uploads/${req.files.find((f) => f.fieldname === 'thumbnailImage').filename}` 
-//         : req.body.thumbnailImage || '',
-//       coverImage: req.files.find((f) => f.fieldname === 'coverImage') 
-//         ? `${BASE_URL}/uploads/${req.files.find((f) => f.fieldname === 'coverImage').filename}` 
-//         : req.body.coverImage || '',
-//       description: { en: descriptionEn, te: descriptionTe },
-//       timeToRead: { en: timeToReadEn, te: timeToReadTe },
-//       storyType: { en: storyTypeEn, te: storyTypeTe },
-//       part: parts,
-//     };
-
-//     console.log('Constructed newPart:', newPart);
-
-//     if (partId) {
-//       const partIndex = story.parts.card.findIndex((p) => p.id === partId);
-//       if (partIndex !== -1) {
-//         story.parts.card[partIndex] = newPart;
-//       } else {
-//         story.parts.card.push(newPart);
-//       }
-//     } else {
-//       story.parts.card.push(newPart);
-//     }
-
-//     await storyCollection.save();
-//     console.log('Database updated successfully');
-//     res.status(201).json({ message: partId ? 'Part updated' : 'Part added', part: newPart });
-//   } catch (err) {
-//     console.error('Error in /parts:', err);
-//     res.status(500).json({ error: 'Failed to manage part', details: err.message });
-//   }
-// });
-
-// // Delete a part
 // router.delete('/parts/:storyId/:partId', async (req, res) => {
 //   try {
 //     const { storyId, partId } = req.params;
-//     console.log('Deleting part - storyId:', storyId, 'partId:', partId);
+//     console.log('DELETE /parts - storyId:', storyId, 'partId:', partId);
+
 //     const storyCollection = await StoryCollection.findOne({ language: 'Eng' });
 //     if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
 
@@ -364,10 +340,12 @@ module.exports = router;
 //     story.parts.card = story.parts.card.filter((part) => part.id !== partId);
 //     await storyCollection.save();
 
+//     console.log('DELETE /parts - Success');
 //     res.json({ message: 'Part deleted successfully' });
 //   } catch (err) {
+//     console.error('DELETE /parts error:', err);
 //     res.status(500).json({ error: 'Failed to delete part', details: err.message });
 //   }
 // });
 
-// module.exports = router;
+module.exports = router;
