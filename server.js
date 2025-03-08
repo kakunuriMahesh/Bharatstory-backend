@@ -11,6 +11,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static('uploads')); // Serve uploaded images
 app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes); // Register auth routes
 
@@ -22,6 +23,10 @@ mongoose.connect(process.env.MONGO_URI, {
   .catch((err) => console.error('MongoDB connection error:', err));
 
 app.get('/', (req, res) => res.send('Backend is running'));
+
+// Start server (for local testing)
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 module.exports = app;
 
@@ -50,7 +55,7 @@ module.exports = app;
 //   .then(() => console.log('Connected to MongoDB'))
 //   .catch((err) => console.error('MongoDB connection error:', err));
 
-// // Routes
+// // // Routes
 // app.use('/api', storyRoutes);
 
 // // Start server (for local testing)

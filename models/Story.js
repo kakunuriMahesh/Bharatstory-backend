@@ -30,7 +30,7 @@ const StorySchema = new mongoose.Schema({
 });
 
 const LanguageSchema = new mongoose.Schema({
-  language: String, // Still "Eng" for legacy, but flexible now
+  language: String, 
   stories: [StorySchema],
 });
 
