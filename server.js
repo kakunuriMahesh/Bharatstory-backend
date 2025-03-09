@@ -18,21 +18,23 @@ const app = express();
 
 // CORS configuration
 const allowedOrigins = [
-  'https://bharat-story-admin-v2.vercel.app', // Production frontend
-  'http://localhost:5173',                    // Local development (Vite default port)
+  'https://bharat-story-admin-v2.vercel.app',           // Vercel frontend
+  'http://localhost:5173',                             // Local dev
+  'https://darkgreen-guanaco-940547.hostingersite.com' // Hostinger frontend
 ];
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
+      console.log('Blocked origin:', origin); // Debug log
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
 }));
 app.use(express.json());
-app.use('/uploads', express.static('uploads')); // Note: Adjust for production (e.g., cloud storage)
+app.use('/uploads', express.static('uploads')); // Note: Adjust for production
 app.use('/api', storyRoutes);
 app.use('/api/auth', authRoutes);
 
@@ -51,14 +53,11 @@ const storyConnection = mongoose.createConnection(storyDbUri);
 storyConnection.on('connected', () => console.log('Connected to Story MongoDB'));
 storyConnection.on('error', (err) => console.error('Story MongoDB connection error:', err));
 
-// Store connections in app for use in routes
 app.set('adminConnection', adminConnection);
 app.set('storyConnection', storyConnection);
 
-// Root route
 app.get('/', (req, res) => res.send('Backend is running'));
 
-// Local testing
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
