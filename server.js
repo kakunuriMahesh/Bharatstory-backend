@@ -3,49 +3,96 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const storyRoutes = require('./routes/stories');
-const authRoutes = require('./routes/auth'); // Must be included
+const authRoutes = require('./routes/auth');
 
 dotenv.config();
 
+console.log('ENV Variables:', {
+  ADMIN_MONGO_URI: process.env.ADMIN_MONGO_URI ? 'Set' : 'Missing',
+  STORY_MONGO_URI: process.env.STORY_MONGO_URI ? 'Set' : 'Missing',
+  JWT_SECRET: process.env.JWT_SECRET ? 'Set' : 'Missing',
+  PORT: process.env.PORT || 'Not set, defaulting to 5000',
+});
+
 const app = express();
 
-app.use(cors());
+// CORS configuration
+const allowedOrigins = [
+  'https://bharat-story-admin-v2.vercel.app', // Production frontend
+  'http://localhost:5173',                    // Local development (Vite default port)
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json());
-app.use('/uploads', express.static('uploads')); // Serve uploaded images
+app.use('/uploads', express.static('uploads')); // Note: Adjust for production (e.g., cloud storage)
 app.use('/api', storyRoutes);
-app.use('/api/auth', authRoutes); // Register auth routes
+app.use('/api/auth', authRoutes);
 
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-  .then(() => console.log('Connected to MongoDB'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+// Admin DB Connection
+const adminDbUri = process.env.ADMIN_MONGO_URI;
+const adminConnection = mongoose.createConnection(adminDbUri);
+adminConnection.on('connected', () => console.log('Connected to Admin MongoDB'));
+adminConnection.on('error', (err) => console.error('Admin MongoDB connection error:', err));
 
+// Story DB Connection
+const storyDbUri = process.env.STORY_MONGO_URI;
+if (!storyDbUri) {
+  console.error('STORY_MONGO_URI is not defined. Please check your .env file.');
+}
+const storyConnection = mongoose.createConnection(storyDbUri);
+storyConnection.on('connected', () => console.log('Connected to Story MongoDB'));
+storyConnection.on('error', (err) => console.error('Story MongoDB connection error:', err));
+
+// Store connections in app for use in routes
+app.set('adminConnection', adminConnection);
+app.set('storyConnection', storyConnection);
+
+// Root route
 app.get('/', (req, res) => res.send('Backend is running'));
 
-// Start server (for local testing)
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// Local testing
+if (process.env.NODE_ENV !== 'production') {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+}
 
 module.exports = app;
 
-// -------first----------
+
+
+
+// -----this is before DB connection----- for admin login
+
+
 
 // const express = require('express');
 // const mongoose = require('mongoose');
 // const cors = require('cors');
 // const dotenv = require('dotenv');
 // const storyRoutes = require('./routes/stories');
+// const authRoutes = require('./routes/auth');
 
 // dotenv.config();
 
 // const app = express();
 
 // // Middleware
-// app.use(cors()); // Keep for now; adjust later if frontend/backend domains align
+// app.use(cors({ 
+//   origin: 'https://bharat-story-admin-v2.vercel.app', // Replace with your frontend URL
+//   credentials: true,
+// }));
 // app.use(express.json());
-// app.use('/uploads', express.static('uploads')); // Serve uploaded images
+// app.use('/uploads', express.static('uploads')); // Note: This may not work on Vercel unless uploads are handled differently
+// app.use('/api', storyRoutes);
+// app.use('/api/auth', authRoutes);
 
 // // MongoDB Connection
 // mongoose.connect(process.env.MONGO_URI, {
@@ -55,15 +102,14 @@ module.exports = app;
 //   .then(() => console.log('Connected to MongoDB'))
 //   .catch((err) => console.error('MongoDB connection error:', err));
 
-// // // Routes
-// app.use('/api', storyRoutes);
+// // Root route
+// app.get('/', (req, res) => res.send('Backend is running'));
 
-// // Start server (for local testing)
-// const PORT = process.env.PORT || 3000;
-// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// // Vercel doesn't use app.listen in serverless mode, but keep it for local testing
+// if (process.env.NODE_ENV !== 'production') {
+//   const PORT = process.env.PORT || 5000; // Use 5000 locally, Vercel assigns its own port
+//   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// }
 
-// // Export for Vercel
-// module.exports = app;
-
-
+// module.exports = app; // Export for Vercel
 
