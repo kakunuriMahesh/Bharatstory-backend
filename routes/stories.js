@@ -49,8 +49,37 @@ const uploadToCloudinary = (buffer, folder) => {
   });
 };
 
-// GET all stories
-router.get('/stories', authenticateToken, async (req, res) => {
+// TODO: making unAuthenticated routes for get methods ------------
+// // GET all stories
+// router.get('/stories', authenticateToken, async (req, res) => {
+//   try {
+//     const storyConnection = req.app.get('storyConnection');
+//     const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+//     const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+//     res.json(storyCollection ? storyCollection.stories : []);
+//   } catch (err) {
+//     console.error('GET /stories error:', err);
+//     res.status(500).json({ error: 'Failed to fetch stories', details: err.message });
+//   }
+// });
+
+// // GET single story
+// router.get('/stories/:id', authenticateToken, async (req, res) => {
+//   try {
+//     const storyConnection = req.app.get('storyConnection');
+//     const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+//     const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+//     const story = storyCollection?.stories.find((s) => s.id === req.params.id);
+//     if (!story) return res.status(404).json({ error: 'Story not found' });
+//     res.json(story);
+//   } catch (err) {
+//     console.error('GET /stories/:id error:', err);
+//     res.status(500).json({ error: 'Failed to fetch story', details: err.message });
+//   }
+// });
+
+// GET all stories (No authentication required)
+router.get('/stories', async (req, res) => {
   try {
     const storyConnection = req.app.get('storyConnection');
     const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
@@ -62,8 +91,8 @@ router.get('/stories', authenticateToken, async (req, res) => {
   }
 });
 
-// GET single story
-router.get('/stories/:id', authenticateToken, async (req, res) => {
+// GET single story by ID (No authentication required)
+router.get('/stories/:id', async (req, res) => {
   try {
     const storyConnection = req.app.get('storyConnection');
     const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
@@ -76,6 +105,7 @@ router.get('/stories/:id', authenticateToken, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch story', details: err.message });
   }
 });
+// -----------------
 
 // POST new story
 router.post(
