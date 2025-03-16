@@ -1,76 +1,83 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const storyRoutes = require('./routes/stories');
-const authRoutes = require('./routes/auth');
+const express = require("express");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const storyRoutes = require("./routes/stories");
+const authRoutes = require("./routes/auth");
 
 dotenv.config();
 
-console.log('ENV Variables:', {
-  ADMIN_MONGO_URI: process.env.ADMIN_MONGO_URI ? 'Set' : 'Missing',
-  STORY_MONGO_URI: process.env.STORY_MONGO_URI ? 'Set' : 'Missing',
-  JWT_SECRET: process.env.JWT_SECRET ? 'Set' : 'Missing',
-  PORT: process.env.PORT || 'Not set, defaulting to 5000',
+console.log("ENV Variables:", {
+  ADMIN_MONGO_URI: process.env.ADMIN_MONGO_URI ? "Set" : "Missing",
+  STORY_MONGO_URI: process.env.STORY_MONGO_URI ? "Set" : "Missing",
+  JWT_SECRET: process.env.JWT_SECRET ? "Set" : "Missing",
+  PORT: process.env.PORT || "Not set, defaulting to 5000",
 });
 
 const app = express();
 
 // CORS configuration
 const allowedOrigins = [
-  'https://bharat-story-admin-v2.vercel.app',           // Vercel frontend
-  'http://localhost:5173',                             // Local dev
-  'https://darkgreen-guanaco-940547.hostingersite.com' // Hostinger frontend
+  "https://bharat-story-admin-v2.vercel.app", // Vercel frontend
+  "http://localhost:5173", // Local dev
+  "https://darkgreen-guanaco-940547.hostingersite.com", // Hostinger frontend
+  "https://bharatstorybooks.com", // Custom domain
+  "https://www.bharatstorybooks.com", // Custom domain with www
 ];
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('Blocked origin:', origin); // Debug log
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-}));
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("Blocked origin:", origin); // Debug log
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  })
+);
 app.use(express.json());
-app.use('/uploads', express.static('uploads')); // Note: Adjust for production
-app.use('/api', storyRoutes);
-app.use('/api/auth', authRoutes);
+app.use("/uploads", express.static("uploads")); // Note: Adjust for production
+app.use("/api", storyRoutes);
+app.use("/api/auth", authRoutes);
 
 // Admin DB Connection
 const adminDbUri = process.env.ADMIN_MONGO_URI;
 const adminConnection = mongoose.createConnection(adminDbUri);
-adminConnection.on('connected', () => console.log('Connected to Admin MongoDB'));
-adminConnection.on('error', (err) => console.error('Admin MongoDB connection error:', err));
+adminConnection.on("connected", () =>
+  console.log("Connected to Admin MongoDB")
+);
+adminConnection.on("error", (err) =>
+  console.error("Admin MongoDB connection error:", err)
+);
 
 // Story DB Connection
 const storyDbUri = process.env.STORY_MONGO_URI;
 if (!storyDbUri) {
-  console.error('STORY_MONGO_URI is not defined. Please check your .env file.');
+  console.error("STORY_MONGO_URI is not defined. Please check your .env file.");
 }
 const storyConnection = mongoose.createConnection(storyDbUri);
-storyConnection.on('connected', () => console.log('Connected to Story MongoDB'));
-storyConnection.on('error', (err) => console.error('Story MongoDB connection error:', err));
+storyConnection.on("connected", () =>
+  console.log("Connected to Story MongoDB")
+);
+storyConnection.on("error", (err) =>
+  console.error("Story MongoDB connection error:", err)
+);
 
-app.set('adminConnection', adminConnection);
-app.set('storyConnection', storyConnection);
+app.set("adminConnection", adminConnection);
+app.set("storyConnection", storyConnection);
 
-app.get('/', (req, res) => res.send('Backend is running'));
+app.get("/", (req, res) => res.send("Backend is running"));
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== "production") {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 module.exports = app;
 
-
-
-
 // -----this is before DB connection----- for admin login
-
-
 
 // const express = require('express');
 // const mongoose = require('mongoose');
@@ -84,7 +91,7 @@ module.exports = app;
 // const app = express();
 
 // // Middleware
-// app.use(cors({ 
+// app.use(cors({
 //   origin: 'https://bharat-story-admin-v2.vercel.app', // Replace with your frontend URL
 //   credentials: true,
 // }));
@@ -111,4 +118,3 @@ module.exports = app;
 // }
 
 // module.exports = app; // Export for Vercel
-
