@@ -39,7 +39,7 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// Helper function to upload to Cloudinary
+// Helper function to upload buffer to Cloudinary
 const uploadToCloudinary = (buffer, folder) => {
   return new Promise((resolve, reject) => {
     cloudinary.uploader.upload_stream({ folder }, (error, result) => {
@@ -47,6 +47,30 @@ const uploadToCloudinary = (buffer, folder) => {
       else resolve(result.secure_url);
     }).end(buffer);
   });
+};
+
+// Helper function to upload image from URL to Cloudinary
+const uploadUrlToCloudinary = async (imageUrl, folder) => {
+  try {
+    // If it's already a Cloudinary URL, return as is
+    if (imageUrl.includes('cloudinary.com')) {
+      return imageUrl;
+    }
+    
+    // If it's a data URL (base64), upload it directly
+    if (imageUrl.startsWith('data:image/')) {
+      const result = await cloudinary.uploader.upload(imageUrl, { folder });
+      return result.secure_url;
+    }
+    
+    // If it's a regular URL, upload it
+    const result = await cloudinary.uploader.upload(imageUrl, { folder });
+    return result.secure_url;
+  } catch (error) {
+    console.error('Error uploading URL to Cloudinary:', error);
+    // Return original URL if upload fails
+    return imageUrl;
+  }
 };
 
 // TODO: making unAuthenticated routes for get methods ------------
@@ -126,11 +150,15 @@ router.post(
       let storyCoverImage = '';
       if (req.files?.['storyCoverImage']) {
         storyCoverImage = await uploadToCloudinary(req.files['storyCoverImage'][0].buffer, 'bharat-stories/stories');
+      } else if (req.body.storyCoverImage) {
+        storyCoverImage = await uploadUrlToCloudinary(req.body.storyCoverImage, 'bharat-stories/stories');
       }
 
       let bannerImge = '';
       if (req.files?.['bannerImge']) {
         bannerImge = await uploadToCloudinary(req.files['bannerImge'][0].buffer, 'bharat-stories/stories');
+      } else if (req.body.bannerImge) {
+        bannerImge = await uploadUrlToCloudinary(req.body.bannerImge, 'bharat-stories/stories');
       }
 
       const storyConnection = req.app.get('storyConnection');
@@ -190,11 +218,15 @@ router.put(
       const storyCoverImageFile = req.files.find((f) => f.fieldname === 'storyCoverImage');
       if (storyCoverImageFile) {
         updatedFields['stories.$.storyCoverImage'] = await uploadToCloudinary(storyCoverImageFile.buffer, 'bharat-stories/stories');
+      } else if (req.body.storyCoverImage) {
+        updatedFields['stories.$.storyCoverImage'] = await uploadUrlToCloudinary(req.body.storyCoverImage, 'bharat-stories/stories');
       }
 
       const bannerImgeFile = req.files.find((f) => f.fieldname === 'bannerImge');
       if (bannerImgeFile) {
         updatedFields['stories.$.bannerImge'] = await uploadToCloudinary(bannerImgeFile.buffer, 'bharat-stories/stories');
+      } else if (req.body.bannerImge) {
+        updatedFields['stories.$.bannerImge'] = await uploadUrlToCloudinary(req.body.bannerImge, 'bharat-stories/stories');
       }
 
       await StoryModel.updateOne(
@@ -300,8 +332,17 @@ router.post(
       let thumbnailImage = '';
       const thumbnailImageFile = req.files.find((f) => f.fieldname === 'thumbnailImage');
       if (thumbnailImageFile) {
+        // Handle file upload from PartForm
         thumbnailImage = await uploadToCloudinary(thumbnailImageFile.buffer, 'bharat-stories/parts');
+      } else if (req.body.thumbnailImage) {
+        // Handle URL string from Agent - use directly if it's already a Cloudinary URL
+        if (req.body.thumbnailImage.includes('cloudinary.com')) {
+          thumbnailImage = req.body.thumbnailImage;
+        } else {
+          thumbnailImage = await uploadUrlToCloudinary(req.body.thumbnailImage, 'bharat-stories/parts');
+        }
       } else if (partId) {
+        // Preserve existing image during update
         const existingPart = story.parts.card.find((p) => p.id === partId);
         thumbnailImage = existingPart?.thumbnailImage || '';
       }
@@ -330,8 +371,17 @@ router.post(
         let image = '';
         const partImageFile = req.files.find((f) => f.fieldname === `partImage${index}`);
         if (partImageFile) {
+          // Handle file upload from PartForm
           image = await uploadToCloudinary(partImageFile.buffer, 'bharat-stories/parts');
+        } else if (req.body[`partImage${index}`]) {
+          // Handle URL string from Agent - use directly if it's already a Cloudinary URL
+          if (req.body[`partImage${index}`].includes('cloudinary.com')) {
+            image = req.body[`partImage${index}`];
+          } else {
+            image = await uploadUrlToCloudinary(req.body[`partImage${index}`], 'bharat-stories/parts');
+          }
         } else if (partId) {
+          // Preserve existing image during update
           const existingPart = story.parts.card.find((p) => p.id === partId);
           image = existingPart?.part[index]?.image || '';
         }
