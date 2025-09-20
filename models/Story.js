@@ -20,6 +20,27 @@ const CardSchema = new mongoose.Schema({
   part: [PartSchema],
 });
 
+// TODO:
+
+const AgePartContentSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  oneLineText: { en: String, te: String, hi: String }, // used for toddler
+  headingText: { en: String, te: String, hi: String }, // used for kids
+  imageUrl: String,
+});
+
+// 🔹 Updated: multilingual fields for age cards
+const AgeCardSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  title: { en: String, te: String, hi: String },
+  thumbnailImage: String,
+  coverImage: String,
+  description: { en: String, te: String, hi: String },
+  timeToRead: { en: String, te: String, hi: String },
+  storyType: { en: String, te: String, hi: String },
+  partContent: [AgePartContentSchema],
+});
+
 const StorySchema = new mongoose.Schema({
   id: { type: String, required: true },
   name: { en: String, te: String, hi: String },
@@ -27,6 +48,8 @@ const StorySchema = new mongoose.Schema({
   storyCoverImage: String,
   bannerImge: String,
   parts: { card: [CardSchema] },
+  toddler: { card: [AgeCardSchema] },
+  kids: { card: [AgeCardSchema] },
 });
 
 const LanguageSchema = new mongoose.Schema({

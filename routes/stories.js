@@ -426,6 +426,87 @@ router.post(
   }
 );
 
+// Append age-group content (toddler or kids) to a story
+router.post('/stories/:id/age-content', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { group, card } = req.body; // group: 'toddler' | 'kids'; card: AgeCardSchema-like
+
+    if (!group || !['toddler', 'kids'].includes(group)) {
+      return res.status(400).json({ error: 'group must be toddler or kids' });
+    }
+    if (!card || typeof card !== 'object') {
+      return res.status(400).json({ error: 'card payload is required' });
+    }
+
+    const storyConnection = req.app.get('storyConnection');
+    const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+    const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+    if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
+
+    const story = storyCollection.stories.find((s) => s.id === id);
+    if (!story) return res.status(404).json({ error: 'Story not found' });
+
+    // Ensure containers exist
+    if (!story[group]) story[group] = { card: [] };
+    if (!Array.isArray(story[group].card)) story[group].card = [];
+
+    // Normalize card multilingual fields
+    const normalizeLangObj = (obj = {}) => ({
+      en: obj.en || '',
+      te: obj.te || '',
+      hi: obj.hi || ''
+    });
+
+    const normalizedCard = {
+      id: card.id || uuidv4(),
+      title: normalizeLangObj(card.title),
+      thumbnailImage: card.thumbnailImage || '',
+      coverImage: card.coverImage || '',
+      description: normalizeLangObj(card.description),
+      timeToRead: normalizeLangObj(card.timeToRead),
+      storyType: normalizeLangObj(card.storyType),
+      partContent: Array.isArray(card.partContent)
+        ? card.partContent.map((pc) => ({
+            id: pc.id || uuidv4(),
+            oneLineText: pc.oneLineText ? normalizeLangObj(pc.oneLineText) : undefined,
+            headingText: pc.headingText ? normalizeLangObj(pc.headingText) : undefined,
+            imageUrl: pc.imageUrl || ''
+          }))
+        : []
+    };
+
+    // Upload images to Cloudinary if necessary
+    if (normalizedCard.thumbnailImage) {
+      normalizedCard.thumbnailImage = await uploadUrlToCloudinary(
+        normalizedCard.thumbnailImage,
+        `bharat-stories/${group}`
+      );
+    }
+    if (normalizedCard.coverImage) {
+      normalizedCard.coverImage = await uploadUrlToCloudinary(
+        normalizedCard.coverImage,
+        `bharat-stories/${group}`
+      );
+    }
+    for (let pc of normalizedCard.partContent) {
+      if (pc.imageUrl) {
+        pc.imageUrl = await uploadUrlToCloudinary(pc.imageUrl, `bharat-stories/${group}`);
+      }
+    }
+
+    // Save
+    story[group].card.push(normalizedCard);
+    await storyCollection.save();
+
+    return res.status(201).json({ message: `${group} content added`, card: normalizedCard });
+  } catch (err) {
+    console.error('POST /stories/:id/age-content error:', err);
+    return res.status(500).json({ error: 'Failed to add age content', details: err.message });
+  }
+});
+
+
 // DELETE part
 router.delete('/parts/:storyId/:partId', authenticateToken, async (req, res) => {
   try {
