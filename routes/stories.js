@@ -568,6 +568,171 @@ router.delete('/parts/:storyId/:partId', authenticateToken, async (req, res) => 
   }
 });
 
+// PUT update age-group content (toddler or kids)
+router.put(
+  '/stories/:id/age-content/:cardId',
+  authenticateToken,
+  upload.any(),
+  async (req, res) => {
+    try {
+      const { id, cardId } = req.params;
+      const group = req.body.group;
+
+      let card = req.body.card;
+      if (typeof card === 'string') {
+        try {
+          card = JSON.parse(card);
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid card JSON' });
+        }
+      }
+
+      if (!group || !['toddler', 'kids'].includes(group)) {
+        return res.status(400).json({ error: 'group must be toddler or kids' });
+      }
+      if (!card || typeof card !== 'object') {
+        return res.status(400).json({ error: 'card payload is required' });
+      }
+
+      const storyConnection = req.app.get('storyConnection');
+      const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+      const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+      if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
+
+      const story = storyCollection.stories.find((s) => s.id === id);
+      if (!story) return res.status(404).json({ error: 'Story not found' });
+
+      if (!story[group] || !story[group].card) {
+        return res.status(404).json({ error: `${group} content not found` });
+      }
+
+      const cardIndex = story[group].card.findIndex((c) => c.id === cardId);
+      if (cardIndex === -1) {
+        return res.status(404).json({ error: 'Card not found' });
+      }
+
+      const existingCard = story[group].card[cardIndex];
+
+      const normalizeLangObj = (obj = {}) => ({
+        en: obj.en || '',
+        te: obj.te || '',
+        hi: obj.hi || ''
+      });
+
+      // Handle thumbnailImage
+      let thumbnailImage = existingCard.thumbnailImage || '';
+      const thumbnailFile = req.files.find((f) => f.fieldname === 'thumbnailImage');
+      if (thumbnailFile) {
+        thumbnailImage = await uploadToCloudinary(thumbnailFile.buffer, `bharat-stories/${group}`);
+      } else if (card.thumbnailImage) {
+        if (card.thumbnailImage.includes('cloudinary.com')) {
+          thumbnailImage = card.thumbnailImage;
+        } else {
+          thumbnailImage = await uploadUrlToCloudinary(card.thumbnailImage, `bharat-stories/${group}`);
+        }
+      }
+
+      // Handle coverImage
+      let coverImage = existingCard.coverImage || '';
+      const coverFile = req.files.find((f) => f.fieldname === 'coverImage');
+      if (coverFile) {
+        coverImage = await uploadToCloudinary(coverFile.buffer, `bharat-stories/${group}`);
+      } else if (card.coverImage) {
+        if (card.coverImage.includes('cloudinary.com')) {
+          coverImage = card.coverImage;
+        } else {
+          coverImage = await uploadUrlToCloudinary(card.coverImage, `bharat-stories/${group}`);
+        }
+      }
+
+      // Handle partContent images
+      const partContent = [];
+      for (let i = 0; i < (card.partContent || []).length; i++) {
+        const pc = card.partContent[i];
+        let imageUrl = '';
+
+        const partFile = req.files.find((f) => f.fieldname === `partImage${i}`);
+        if (partFile) {
+          imageUrl = await uploadToCloudinary(partFile.buffer, `bharat-stories/${group}`);
+        } else if (pc.imageUrl) {
+          if (pc.imageUrl.includes('cloudinary.com')) {
+            imageUrl = pc.imageUrl;
+          } else {
+            imageUrl = await uploadUrlToCloudinary(pc.imageUrl, `bharat-stories/${group}`);
+          }
+        } else {
+          // Preserve existing image if no new one provided
+          const existingPart = existingCard.partContent?.[i];
+          imageUrl = existingPart?.imageUrl || '';
+        }
+
+        partContent.push({
+          id: pc.id || uuidv4(),
+          oneLineText: pc.oneLineText ? normalizeLangObj(pc.oneLineText) : undefined,
+          headingText: pc.headingText ? normalizeLangObj(pc.headingText) : undefined,
+          imageUrl
+        });
+      }
+
+      const updatedCard = {
+        id: cardId,
+        title: normalizeLangObj(card.title),
+        thumbnailImage,
+        coverImage,
+        description: normalizeLangObj(card.description),
+        timeToRead: normalizeLangObj(card.timeToRead),
+        storyType: normalizeLangObj(card.storyType),
+        partContent
+      };
+
+      story[group].card[cardIndex] = updatedCard;
+      await storyCollection.save();
+
+      return res.json({ message: `${group} content updated`, card: updatedCard });
+    } catch (err) {
+      console.error('PUT /stories/:id/age-content/:cardId error:', err);
+      res.status(500).json({ error: 'Failed to update age content', details: err.message });
+    }
+  }
+);
+
+// DELETE age-group content (toddler or kids)
+router.delete('/stories/:id/age-content/:cardId', authenticateToken, async (req, res) => {
+  try {
+    const { id, cardId } = req.params;
+    const group = req.query.group;
+
+    if (!group || !['toddler', 'kids'].includes(group)) {
+      return res.status(400).json({ error: 'group must be toddler or kids' });
+    }
+
+    const storyConnection = req.app.get('storyConnection');
+    const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+    const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+    if (!storyCollection) return res.status(404).json({ error: 'Story collection not found' });
+
+    const story = storyCollection.stories.find((s) => s.id === id);
+    if (!story) return res.status(404).json({ error: 'Story not found' });
+
+    if (!story[group] || !story[group].card) {
+      return res.status(404).json({ error: `${group} content not found` });
+    }
+
+    const cardIndex = story[group].card.findIndex((c) => c.id === cardId);
+    if (cardIndex === -1) {
+      return res.status(404).json({ error: 'Card not found' });
+    }
+
+    story[group].card.splice(cardIndex, 1);
+    await storyCollection.save();
+
+    res.json({ message: `${group} content deleted successfully` });
+  } catch (err) {
+    console.error('DELETE /stories/:id/age-content/:cardId error:', err);
+    res.status(500).json({ error: 'Failed to delete age content', details: err.message });
+  }
+});
+
 module.exports = router;
 
 
