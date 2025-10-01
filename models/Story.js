@@ -47,9 +47,11 @@ const StorySchema = new mongoose.Schema({
   languages: [String], // e.g., ["en", "te", "hi"]
   storyCoverImage: String,
   bannerImge: String,
-  parts: { card: [CardSchema] },
-  toddler: { card: [AgeCardSchema] },
-  kids: { card: [AgeCardSchema] },
+  parts: { card: [CardSchema] }, // Adult (18+)
+  toddler: { card: [AgeCardSchema] }, // Toddler (3-5)
+  kids: { card: [AgeCardSchema] }, // Kids (6-8)
+  child: { card: [CardSchema] }, // Child (9-12)
+  teen: { card: [CardSchema] }, // Teen (13-18)
 });
 
 const LanguageSchema = new mongoose.Schema({

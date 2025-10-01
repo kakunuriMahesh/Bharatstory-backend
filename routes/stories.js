@@ -171,6 +171,8 @@ router.post(
         storyCoverImage,
         bannerImge,
         parts: { card: [] },
+        child: { card: [] },
+        teen: { card: [] },
       };
 
       if (!storyCollection) {
@@ -262,7 +264,7 @@ router.delete('/stories/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// POST a part (add or update)
+// POST a part (add or update) - Handles adult, child, and teen
 router.post(
   '/parts',
   authenticateToken,
@@ -290,6 +292,17 @@ router.post(
         languages,
       } = req.body;
 
+      // Get ageGroup and contentType from req.body directly to ensure they're parsed correctly
+      const ageGroup = req.body.ageGroup;
+      const contentType = req.body.contentType; // New validation key: 'adult', 'child', 'teen'
+      // Debug: Log the values we're receiving
+      console.log('=== FIELD ROUTING DEBUG ===');
+      console.log('req.body.ageGroup:', req.body.ageGroup);
+      console.log('req.body.contentType:', req.body.contentType);
+      console.log('ageGroup variable:', ageGroup);
+      console.log('contentType variable:', contentType);
+
+
       const parsedLanguages = JSON.parse(languages || '["en", "te"]');
       if (!parsedLanguages.length) return res.status(400).json({ error: 'At least one language required' });
       if (!storyId) return res.status(400).json({ error: 'storyId is required' });
@@ -301,6 +314,33 @@ router.post(
 
       const story = storyCollection.stories.find((s) => s.id === storyId);
       if (!story) return res.status(404).json({ error: 'Story not found' });
+
+      // SIMPLE AND RELIABLE: Use contentType to determine target field
+      let targetField = 'parts'; // Default for adult
+      let folderPath = 'bharat-stories/parts'; // Default folder
+      
+      // Direct mapping - no complex logic
+      if (contentType === 'child') {
+        targetField = 'child';
+        folderPath = 'bharat-stories/child';
+      } else if (contentType === 'teen') {
+        targetField = 'teen';
+        folderPath = 'bharat-stories/teen';
+      }
+      
+      console.log('ROUTING:', contentType, '->', targetField);
+      
+      
+      // Initialize the target field if it doesn't exist
+      if (!story[targetField]) {
+        story[targetField] = { card: [] };
+      }
+      if (!story[targetField].card) {
+        story[targetField].card = [];
+      }
+      if (!Array.isArray(story[targetField].card)) {
+        story[targetField].card = [];
+      }
 
       const title = {};
       const date = {};
@@ -334,17 +374,17 @@ router.post(
       console.log('thumbnailImageFile :', thumbnailImageFile);
       if (thumbnailImageFile) {
         // Handle file upload from PartForm
-        thumbnailImage = await uploadToCloudinary(thumbnailImageFile.buffer, 'bharat-stories/parts');
+        thumbnailImage = await uploadToCloudinary(thumbnailImageFile.buffer, folderPath);
       } else if (req.body.thumbnailImage) {
         // Handle URL string from Agent - use directly if it's already a Cloudinary URL
         if (req.body.thumbnailImage.includes('cloudinary.com')) {
           thumbnailImage = req.body.thumbnailImage;
         } else {
-          thumbnailImage = await uploadUrlToCloudinary(req.body.thumbnailImage, 'bharat-stories/parts');
+          thumbnailImage = await uploadUrlToCloudinary(req.body.thumbnailImage, folderPath);
         }
       } else if (partId) {
         // Preserve existing image during update
-        const existingPart = story.parts.card.find((p) => p.id === partId);
+        const existingPart = story[targetField].card.find((p) => p.id === partId);
         thumbnailImage = existingPart?.thumbnailImage || '';
       }
 
@@ -373,17 +413,17 @@ router.post(
         const partImageFile = req.files.find((f) => f.fieldname === `partImage${index}`);
         if (partImageFile) {
           // Handle file upload from PartForm
-          image = await uploadToCloudinary(partImageFile.buffer, 'bharat-stories/parts');
+          image = await uploadToCloudinary(partImageFile.buffer, folderPath);
         } else if (req.body[`partImage${index}`]) {
           // Handle URL string from Agent - use directly if it's already a Cloudinary URL
           if (req.body[`partImage${index}`].includes('cloudinary.com')) {
             image = req.body[`partImage${index}`];
           } else {
-            image = await uploadUrlToCloudinary(req.body[`partImage${index}`], 'bharat-stories/parts');
+            image = await uploadUrlToCloudinary(req.body[`partImage${index}`], folderPath);
           }
         } else if (partId) {
           // Preserve existing image during update
-          const existingPart = story.parts.card.find((p) => p.id === partId);
+          const existingPart = story[targetField].card.find((p) => p.id === partId);
           image = existingPart?.part[index]?.image || '';
         }
         parts.push({
@@ -401,25 +441,36 @@ router.post(
         title,
         date,
         thumbnailImage,
+        coverImage: '',
         description,
         timeToRead,
         storyType,
         part: parts,
       };
 
+      
       if (partId) {
-        const partIndex = story.parts.card.findIndex((p) => p.id === partId);
+        const partIndex = story[targetField].card.findIndex((p) => p.id === partId);
         if (partIndex !== -1) {
-          story.parts.card[partIndex] = newPart;
+          story[targetField].card[partIndex] = newPart;
         } else {
-          story.parts.card.push(newPart);
+          story[targetField].card.push(newPart);
         }
       } else {
-        story.parts.card.push(newPart);
+        story[targetField].card.push(newPart);
       }
 
       await storyCollection.save();
-      res.status(201).json({ message: partId ? 'Part updated' : 'Part added', part: newPart });
+      
+      console.log('=== SAVE COMPLETED ===');
+      console.log('Saved to targetField:', targetField);
+      console.log('Final story.parts.card length:', story.parts?.card?.length || 0);
+      console.log('Final story.child.card length:', story.child?.card?.length || 0);
+      console.log('Final story.teen.card length:', story.teen?.card?.length || 0);
+      console.log('=== END SAVE COMPLETED ===');
+      
+      const ageLabel = ageGroup === 'child' ? 'Child' : ageGroup === 'teen' ? 'Teen' : 'Adult';
+      res.status(201).json({ message: partId ? `${ageLabel} part updated` : `${ageLabel} part added`, part: newPart });
     } catch (err) {
       console.error('POST /parts error:', err);
       res.status(500).json({ error: 'Failed to manage part', details: err.message });
@@ -427,7 +478,7 @@ router.post(
   }
 );
 
-// Append age-group content (toddler or kids) to a story
+// Append age-group content (toddler, kids, child, teen) to a story
 router.post(
   '/stories/:id/age-content',
   authenticateToken,
@@ -446,7 +497,7 @@ router.post(
         }
       }
 
-      if (!group || !['toddler', 'kids'].includes(group)) {
+      if (!group || !['toddler', 'kids', 'child', 'teen'].includes(group)) {
         return res.status(400).json({ error: 'group must be toddler or kids' });
       }
       if (!card || typeof card !== 'object') {
@@ -496,7 +547,9 @@ router.post(
         }
       }
 
-      // ✅ Handle partContent images
+      let normalizedCard;
+
+      // Handle toddler and kids (use AgeCardSchema with partContent)
       const partContent = [];
       for (let i = 0; i < (card.partContent || []).length; i++) {
         const pc = card.partContent[i];
@@ -521,7 +574,7 @@ router.post(
         });
       }
 
-      const normalizedCard = {
+      normalizedCard = {
         id: card.id || uuidv4(),
         title: normalizeLangObj(card.title),
         thumbnailImage,
@@ -543,13 +596,362 @@ router.post(
   }
 );
 
+// POST child part (dedicated route for child content)
+router.post(
+  '/child-parts',
+  authenticateToken,
+  upload.any(),
+  async (req, res) => {
+    try {
+      const {
+        storyId,
+        partId,
+        titleEn,
+        titleTe,
+        titleHi,
+        dateEn,
+        dateTe,
+        dateHi,
+        descriptionEn,
+        descriptionTe,
+        descriptionHi,
+        timeToReadEn,
+        timeToReadTe,
+        timeToReadHi,
+        storyTypeEn,
+        storyTypeTe,
+        storyTypeHi,
+        languages,
+      } = req.body;
 
+      const parsedLanguages = JSON.parse(languages || '["en", "te"]');
+      if (!parsedLanguages.length) return res.status(400).json({ error: 'At least one language required' });
+      if (!storyId) return res.status(400).json({ error: 'storyId is required' });
 
+      const storyConnection = req.app.get('storyConnection');
+      const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+      const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+      if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
 
-// DELETE part
+      const story = storyCollection.stories.find((s) => s.id === storyId);
+      if (!story) return res.status(404).json({ error: 'Story not found' });
+
+      // Child content - always goes to child field
+      const targetField = 'child';
+      const folderPath = 'bharat-stories/child';
+      
+      // Initialize the child field if it doesn't exist
+      if (!story[targetField]) {
+        story[targetField] = { card: [] };
+      }
+      if (!story[targetField].card) {
+        story[targetField].card = [];
+      }
+      if (!Array.isArray(story[targetField].card)) {
+        story[targetField].card = [];
+      }
+
+      const title = {};
+      const date = {};
+      const description = {};
+      const timeToRead = {};
+      const storyType = {};
+      if (parsedLanguages.includes('en')) {
+        title.en = titleEn || '';
+        date.en = dateEn || '';
+        description.en = descriptionEn || '';
+        timeToRead.en = timeToReadEn || '';
+        storyType.en = storyTypeEn || '';
+      }
+      if (parsedLanguages.includes('te')) {
+        title.te = titleTe || '';
+        date.te = dateTe || '';
+        description.te = descriptionTe || '';
+        timeToRead.te = timeToReadTe || '';
+        storyType.te = storyTypeTe || '';
+      }
+      if (parsedLanguages.includes('hi')) {
+        title.hi = titleHi || '';
+        date.hi = dateHi || '';
+        description.hi = descriptionHi || '';
+        timeToRead.hi = timeToReadHi || '';
+        storyType.hi = storyTypeHi || '';
+      }
+
+      let thumbnailImage = '';
+      const thumbnailImageFile = req.files.find((f) => f.fieldname === 'thumbnailImage');
+      if (thumbnailImageFile) {
+        thumbnailImage = await uploadToCloudinary(thumbnailImageFile.buffer, folderPath);
+      } else if (req.body.thumbnailImage) {
+        if (req.body.thumbnailImage.includes('cloudinary.com')) {
+          thumbnailImage = req.body.thumbnailImage;
+        } else {
+          thumbnailImage = await uploadUrlToCloudinary(req.body.thumbnailImage, folderPath);
+        }
+      } else if (partId) {
+        const existingPart = story[targetField].card.find((p) => p.id === partId);
+        thumbnailImage = existingPart?.thumbnailImage || '';
+      }
+
+      const parts = [];
+      let index = 0;
+      while (req.body[`headingEn${index}`] || req.body[`headingTe${index}`] || req.body[`headingHi${index}`]) {
+        const heading = {};
+        const quote = {};
+        const text = {};
+        if (parsedLanguages.includes('en')) {
+          heading.en = req.body[`headingEn${index}`] || '';
+          quote.en = req.body[`quoteEn${index}`] || '';
+          text.en = req.body[`textEn${index}`] || '';
+        }
+        if (parsedLanguages.includes('te')) {
+          heading.te = req.body[`headingTe${index}`] || '';
+          quote.te = req.body[`quoteTe${index}`] || '';
+          text.te = req.body[`textTe${index}`] || '';
+        }
+        if (parsedLanguages.includes('hi')) {
+          heading.hi = req.body[`headingHi${index}`] || '';
+          quote.hi = req.body[`quoteHi${index}`] || '';
+          text.hi = req.body[`textHi${index}`] || '';
+        }
+        let image = '';
+        const partImageFile = req.files.find((f) => f.fieldname === `partImage${index}`);
+        if (partImageFile) {
+          image = await uploadToCloudinary(partImageFile.buffer, folderPath);
+        } else if (req.body[`partImage${index}`]) {
+          if (req.body[`partImage${index}`].includes('cloudinary.com')) {
+            image = req.body[`partImage${index}`];
+          } else {
+            image = await uploadUrlToCloudinary(req.body[`partImage${index}`], folderPath);
+          }
+        } else if (partId) {
+          const existingPart = story[targetField].card.find((p) => p.id === partId);
+          image = existingPart?.part[index]?.image || '';
+        }
+        parts.push({
+          id: req.body[`id${index}`] || uuidv4(),
+          heading,
+          quote,
+          image,
+          text,
+        });
+        index++;
+      }
+
+      const newPart = {
+        id: partId || uuidv4(),
+        title,
+        date,
+        thumbnailImage,
+        coverImage: '',
+        description,
+        timeToRead,
+        storyType,
+        part: parts,
+      };
+
+      if (partId) {
+        const partIndex = story[targetField].card.findIndex((p) => p.id === partId);
+        if (partIndex !== -1) {
+          story[targetField].card[partIndex] = newPart;
+        } else {
+          story[targetField].card.push(newPart);
+        }
+      } else {
+        story[targetField].card.push(newPart);
+      }
+
+      await storyCollection.save();
+      
+      res.status(201).json({ message: partId ? 'Child part updated' : 'Child part added', part: newPart });
+    } catch (err) {
+      console.error('POST /child-parts error:', err);
+      res.status(500).json({ error: 'Failed to manage child part', details: err.message });
+    }
+  }
+);
+
+// POST teen part (dedicated route for teen content)
+router.post(
+  '/teen-parts',
+  authenticateToken,
+  upload.any(),
+  async (req, res) => {
+    try {
+      const {
+        storyId,
+        partId,
+        titleEn,
+        titleTe,
+        titleHi,
+        dateEn,
+        dateTe,
+        dateHi,
+        descriptionEn,
+        descriptionTe,
+        descriptionHi,
+        timeToReadEn,
+        timeToReadTe,
+        timeToReadHi,
+        storyTypeEn,
+        storyTypeTe,
+        storyTypeHi,
+        languages,
+      } = req.body;
+
+      const parsedLanguages = JSON.parse(languages || '["en", "te"]');
+      if (!parsedLanguages.length) return res.status(400).json({ error: 'At least one language required' });
+      if (!storyId) return res.status(400).json({ error: 'storyId is required' });
+
+      const storyConnection = req.app.get('storyConnection');
+      const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+      const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+      if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
+
+      const story = storyCollection.stories.find((s) => s.id === storyId);
+      if (!story) return res.status(404).json({ error: 'Story not found' });
+
+      // Teen content - always goes to teen field
+      const targetField = 'teen';
+      const folderPath = 'bharat-stories/teen';
+      
+      // Initialize the teen field if it doesn't exist
+      if (!story[targetField]) {
+        story[targetField] = { card: [] };
+      }
+      if (!story[targetField].card) {
+        story[targetField].card = [];
+      }
+      if (!Array.isArray(story[targetField].card)) {
+        story[targetField].card = [];
+      }
+
+      const title = {};
+      const date = {};
+      const description = {};
+      const timeToRead = {};
+      const storyType = {};
+      if (parsedLanguages.includes('en')) {
+        title.en = titleEn || '';
+        date.en = dateEn || '';
+        description.en = descriptionEn || '';
+        timeToRead.en = timeToReadEn || '';
+        storyType.en = storyTypeEn || '';
+      }
+      if (parsedLanguages.includes('te')) {
+        title.te = titleTe || '';
+        date.te = dateTe || '';
+        description.te = descriptionTe || '';
+        timeToRead.te = timeToReadTe || '';
+        storyType.te = storyTypeTe || '';
+      }
+      if (parsedLanguages.includes('hi')) {
+        title.hi = titleHi || '';
+        date.hi = dateHi || '';
+        description.hi = descriptionHi || '';
+        timeToRead.hi = timeToReadHi || '';
+        storyType.hi = storyTypeHi || '';
+      }
+
+      let thumbnailImage = '';
+      const thumbnailImageFile = req.files.find((f) => f.fieldname === 'thumbnailImage');
+      if (thumbnailImageFile) {
+        thumbnailImage = await uploadToCloudinary(thumbnailImageFile.buffer, folderPath);
+      } else if (req.body.thumbnailImage) {
+        if (req.body.thumbnailImage.includes('cloudinary.com')) {
+          thumbnailImage = req.body.thumbnailImage;
+        } else {
+          thumbnailImage = await uploadUrlToCloudinary(req.body.thumbnailImage, folderPath);
+        }
+      } else if (partId) {
+        const existingPart = story[targetField].card.find((p) => p.id === partId);
+        thumbnailImage = existingPart?.thumbnailImage || '';
+      }
+
+      const parts = [];
+      let index = 0;
+      while (req.body[`headingEn${index}`] || req.body[`headingTe${index}`] || req.body[`headingHi${index}`]) {
+        const heading = {};
+        const quote = {};
+        const text = {};
+        if (parsedLanguages.includes('en')) {
+          heading.en = req.body[`headingEn${index}`] || '';
+          quote.en = req.body[`quoteEn${index}`] || '';
+          text.en = req.body[`textEn${index}`] || '';
+        }
+        if (parsedLanguages.includes('te')) {
+          heading.te = req.body[`headingTe${index}`] || '';
+          quote.te = req.body[`quoteTe${index}`] || '';
+          text.te = req.body[`textTe${index}`] || '';
+        }
+        if (parsedLanguages.includes('hi')) {
+          heading.hi = req.body[`headingHi${index}`] || '';
+          quote.hi = req.body[`quoteHi${index}`] || '';
+          text.hi = req.body[`textHi${index}`] || '';
+        }
+        let image = '';
+        const partImageFile = req.files.find((f) => f.fieldname === `partImage${index}`);
+        if (partImageFile) {
+          image = await uploadToCloudinary(partImageFile.buffer, folderPath);
+        } else if (req.body[`partImage${index}`]) {
+          if (req.body[`partImage${index}`].includes('cloudinary.com')) {
+            image = req.body[`partImage${index}`];
+          } else {
+            image = await uploadUrlToCloudinary(req.body[`partImage${index}`], folderPath);
+          }
+        } else if (partId) {
+          const existingPart = story[targetField].card.find((p) => p.id === partId);
+          image = existingPart?.part[index]?.image || '';
+        }
+        parts.push({
+          id: req.body[`id${index}`] || uuidv4(),
+          heading,
+          quote,
+          image,
+          text,
+        });
+        index++;
+      }
+
+      const newPart = {
+        id: partId || uuidv4(),
+        title,
+        date,
+        thumbnailImage,
+        coverImage: '',
+        description,
+        timeToRead,
+        storyType,
+        part: parts,
+      };
+
+      if (partId) {
+        const partIndex = story[targetField].card.findIndex((p) => p.id === partId);
+        if (partIndex !== -1) {
+          story[targetField].card[partIndex] = newPart;
+        } else {
+          story[targetField].card.push(newPart);
+        }
+      } else {
+        story[targetField].card.push(newPart);
+      }
+
+      await storyCollection.save();
+      
+      res.status(201).json({ message: partId ? 'Teen part updated' : 'Teen part added', part: newPart });
+    } catch (err) {
+      console.error('POST /teen-parts error:', err);
+      res.status(500).json({ error: 'Failed to manage teen part', details: err.message });
+    }
+  }
+);
+
+// DELETE part - Handles adult, child, and teen
 router.delete('/parts/:storyId/:partId', authenticateToken, async (req, res) => {
   try {
     const { storyId, partId } = req.params;
+    const { ageGroup } = req.query; // Get ageGroup from query parameter
+    
     const storyConnection = req.app.get('storyConnection');
     const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
     const storyCollection = await StoryModel.findOne({ language: 'Eng' });
@@ -558,17 +960,25 @@ router.delete('/parts/:storyId/:partId', authenticateToken, async (req, res) => 
     const story = storyCollection.stories.find((s) => s.id === storyId);
     if (!story) return res.status(404).json({ error: 'Story not found' });
 
-    story.parts.card = story.parts.card.filter((part) => part.id !== partId);
+    // Determine which field to use
+    const targetField = ageGroup === 'child' ? 'child' : ageGroup === 'teen' ? 'teen' : 'parts';
+    
+    if (!story[targetField] || !story[targetField].card) {
+      return res.status(404).json({ error: `No ${ageGroup || 'adult'} parts found` });
+    }
+
+    story[targetField].card = story[targetField].card.filter((part) => part.id !== partId);
     await storyCollection.save();
 
-    res.json({ message: 'Part deleted successfully' });
+    const ageLabel = ageGroup === 'child' ? 'Child' : ageGroup === 'teen' ? 'Teen' : 'Adult';
+    res.json({ message: `${ageLabel} part deleted successfully` });
   } catch (err) {
     console.error('DELETE /parts error:', err);
     res.status(500).json({ error: 'Failed to delete part', details: err.message });
   }
 });
 
-// PUT update age-group content (toddler or kids)
+// PUT update age-group content (toddler, kids, child, teen)
 router.put(
   '/stories/:id/age-content/:cardId',
   authenticateToken,
@@ -587,7 +997,7 @@ router.put(
         }
       }
 
-      if (!group || !['toddler', 'kids'].includes(group)) {
+      if (!group || !['toddler', 'kids', 'child', 'teen'].includes(group)) {
         return res.status(400).json({ error: 'group must be toddler or kids' });
       }
       if (!card || typeof card !== 'object') {
@@ -645,7 +1055,9 @@ router.put(
         }
       }
 
-      // Handle partContent images
+      let updatedCard;
+
+      // Handle toddler and kids (use AgeCardSchema with partContent)
       const partContent = [];
       for (let i = 0; i < (card.partContent || []).length; i++) {
         const pc = card.partContent[i];
@@ -674,7 +1086,7 @@ router.put(
         });
       }
 
-      const updatedCard = {
+      updatedCard = {
         id: cardId,
         title: normalizeLangObj(card.title),
         thumbnailImage,
@@ -696,13 +1108,13 @@ router.put(
   }
 );
 
-// DELETE age-group content (toddler or kids)
+// DELETE age-group content (toddler, kids, child, teen)
 router.delete('/stories/:id/age-content/:cardId', authenticateToken, async (req, res) => {
   try {
     const { id, cardId } = req.params;
     const group = req.query.group;
 
-    if (!group || !['toddler', 'kids'].includes(group)) {
+    if (!group || !['toddler', 'kids', 'child', 'teen'].includes(group)) {
       return res.status(400).json({ error: 'group must be toddler or kids' });
     }
 
@@ -732,8 +1144,6 @@ router.delete('/stories/:id/age-content/:cardId', authenticateToken, async (req,
     res.status(500).json({ error: 'Failed to delete age content', details: err.message });
   }
 });
-
-module.exports = router;
 
 
 
@@ -1581,5 +1991,70 @@ module.exports = router;
 
 // module.exports = router;
 
+// DELETE child part
+router.delete('/child-parts/:storyId/:partId', authenticateToken, async (req, res) => {
+  try {
+    const { storyId, partId } = req.params;
 
+    const storyConnection = req.app.get('storyConnection');
+    const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+    const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+    if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
 
+    const story = storyCollection.stories.find((s) => s.id === storyId);
+    if (!story) return res.status(404).json({ error: 'Story not found' });
+
+    // Child content - always from child field
+    const targetField = 'child';
+
+    if (!story[targetField] || !story[targetField].card) {
+      return res.status(404).json({ error: 'Child parts not found' });
+    }
+
+    const partIndex = story[targetField].card.findIndex((p) => p.id === partId);
+    if (partIndex === -1) return res.status(404).json({ error: 'Child part not found' });
+
+    story[targetField].card.splice(partIndex, 1);
+    await storyCollection.save();
+
+    res.json({ message: 'Child part deleted successfully' });
+  } catch (err) {
+    console.error('DELETE /child-parts error:', err);
+    res.status(500).json({ error: 'Failed to delete child part', details: err.message });
+  }
+});
+
+// DELETE teen part
+router.delete('/teen-parts/:storyId/:partId', authenticateToken, async (req, res) => {
+  try {
+    const { storyId, partId } = req.params;
+
+    const storyConnection = req.app.get('storyConnection');
+    const StoryModel = storyConnection.model('StoryCollection', StoryCollection.schema);
+    const storyCollection = await StoryModel.findOne({ language: 'Eng' });
+    if (!storyCollection) return res.status(404).json({ error: 'No stories found' });
+
+    const story = storyCollection.stories.find((s) => s.id === storyId);
+    if (!story) return res.status(404).json({ error: 'Story not found' });
+
+    // Teen content - always from teen field
+    const targetField = 'teen';
+
+    if (!story[targetField] || !story[targetField].card) {
+      return res.status(404).json({ error: 'Teen parts not found' });
+    }
+
+    const partIndex = story[targetField].card.findIndex((p) => p.id === partId);
+    if (partIndex === -1) return res.status(404).json({ error: 'Teen part not found' });
+
+    story[targetField].card.splice(partIndex, 1);
+    await storyCollection.save();
+
+    res.json({ message: 'Teen part deleted successfully' });
+  } catch (err) {
+    console.error('DELETE /teen-parts error:', err);
+    res.status(500).json({ error: 'Failed to delete teen part', details: err.message });
+  }
+});
+
+module.exports = router;
